@@ -11,7 +11,6 @@ sudo apt upgrade -y
 echo "🐳 Installing Docker..."
 sudo apt install -y docker.io
 sudo usermod -aG docker $USER
-sudo newgrp docker
 echo "✅ Docker installed. (You may need to logout and back in for group changes to take effect)"
 
 # 3. Install Kind
