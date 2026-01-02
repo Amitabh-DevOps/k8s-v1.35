@@ -26,73 +26,90 @@ Tools to quickly provision a test environment on AWS EC2 or local machines.
 
 ### Environment Preparation
 1. Copy the setup script to your Ubuntu instance and execute it:
+
+   ```bash
    chmod +x setup-k8s.sh
    ./setup-k8s.sh
+   ```
 
-2. Provision the Kind cluster:
+2. Update Docker group:
+
+   ```bash
+   newgrp docker
+   ```
+
+3. Provision the Kind cluster:
+   ```bash
    kind create cluster --config kind-config.yaml --name upgrade-demo
+   ```
 
 ### Deployment
 1. Build and push your container image:
+   ```bash
    docker build -t your-registry/k8s-demo-app:v1.0.0 .
    docker push your-registry/k8s-demo-app:v1.0.0
+   ```
 
 2. Update the image field in k8s/manifests.yaml with your specific image tag.
 
 3. Deploy the application:
+   ```bash
    kubectl apply -f k8s/manifests.yaml
+   ```
 
 ### Cluster Upgrade Process
 To demonstrate the upgrade from version 1.34.0 to 1.35.0, follow these standard Kubernetes maintenance steps. This process simulates a professional `kubeadm` based upgrade.
 
 #### 1. Plan the Upgrade
 Check for the available versions and ensure the cluster is ready for the transition.
-```bash
-kubeadm upgrade plan
-```
+   ```bash
+   kubeadm upgrade plan
+   ```
 
 #### 2. Upgrade the Control Plane Node
 Apply the upgrade to the first control plane node.
-```bash
-# Drain the node to move pods
-kubectl drain control-plane-node --ignore-daemonsets
+   ```bash
+   # Drain the node to move pods
+   kubectl drain control-plane-node --ignore-daemonsets
 
-# Upgrade kubeadm component
-sudo apt update
-sudo apt install -y kubeadm=1.35.0-1.1
+   # Upgrade kubeadm component   
+   sudo apt update
+   sudo apt install -y kubeadm=1.35.0-1.1
 
-# Run the upgrade
-sudo kubeadm upgrade apply v1.35.0
+   # Run the upgrade
+   sudo kubeadm upgrade apply v1.35.0
 
-# Upgrade kubelet and kubectl
-sudo apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
-sudo systemctl daemon-reload
-sudo systemctl restart kubelet
+   # Upgrade kubelet and kubectl
+   sudo apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
+   sudo systemctl daemon-reload
+   sudo systemctl restart kubelet
 
-# Uncordon the node
-kubectl uncordon control-plane-node
-```
+   # Uncordon the node
+   kubectl uncordon control-plane-node
+   ```
 
 #### 3. Upgrade Worker Nodes
 Repeat these steps for each worker node in your cluster.
-```bash
-# From the control plane:
-kubectl drain worker-node-01 --ignore-daemonsets
+   ```bash
+   # From the control plane:
+   kubectl drain worker-node-01 --ignore-daemonsets
 
-# From the worker node:
-sudo apt update
-sudo apt install -y kubeadm=1.35.0-1.1
-sudo kubeadm upgrade node
-sudo apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
-sudo systemctl daemon-reload
-sudo systemctl restart kubelet
+   # From the worker node:
+   sudo apt update
+   sudo apt install -y kubeadm=1.35.0-1.1
+   sudo kubeadm upgrade node
+   sudo apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
+   sudo systemctl daemon-reload
+   sudo systemctl restart kubelet
 
-# From the control plane:
-kubectl uncordon worker-node-01
-```
+   # From the control plan e:
+   kubectl uncordon worker-node-01
+   ```
 
 ### Demonstration Guidance
-Access the application dashboard before starting the upgrade. As you drain nodes and upgrade components:
+Access the application dashboard by navigating to the **Public IP of your EC2 instance** in your web browser (ensure port 80 is open in your AWS Security Group).
+
+As you drain nodes and upgrade components:
 1. Observe the "Node Name" in the dashboard change as pods are rescheduled.
 2. Monitor the "Live" pulse to ensure zero-downtime during the rolling process.
 3. Verify the final versioning across all nodes once the process is complete.
