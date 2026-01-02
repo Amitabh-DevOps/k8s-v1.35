@@ -1,8 +1,10 @@
 # Kubernetes Cluster Upgrade: v1.34 to v1.35
 
-This repository contains a sample Node.js application and the necessary infrastructure configurations to perform a Kubernetes cluster upgrade from version 1.34 to 1.35. The setup uses a multi-node Kind cluster running on an AWS EC2 Ubuntu instance.
+This repository contains a sample Node.js application and the necessary infrastructure configurations to perform a Kubernetes cluster upgrade from version `1.34` to `1.35`. The setup uses a multi-node Kind cluster running on an AWS EC2 Ubuntu instance.
 
 The included "Cluster Monitor" application provides real-time telemetry of pod distribution across nodes, allowing for the observation of pod rescheduling during maintenance operations.
+
+![dashboard](screenshots/dashboard.png)
 
 ## Project Structure
 
@@ -91,8 +93,9 @@ Configure the official Kubernetes Dashboard to provide a standard administrative
 4. Access the Dashboard:
    Use port forwarding in a separate session to access the interface securely:
    ```bash
-   kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8080:443 --address 0.0.0.0
+   kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8080:443 --address 0.0.0.0 &
    ```
+
    Access via `https://<EC2-Public-IP>:8080`.
 
 5. Use the dashboard to monitor the cluster.
@@ -110,7 +113,7 @@ Since Kind operates within Docker containers, all upgrade commands must be execu
 
 **Step 1: Drain the node (Run on EC2 Host)**
 ```bash
-kubectl drain upgrade-demo-control-plane --ignore-daemonsets
+kubectl drain upgrade-demo-control-plane --ignore-daemonsets --delete-emptydir-data
 ```
 
 **Step 2: Enter the node container (Run on EC2 Host)**
@@ -151,13 +154,28 @@ exit
 kubectl uncordon upgrade-demo-control-plane
 ```
 
+![after-upgrade](screenshots/5.png)
+
+---
+
+> [!NOTE]
+> 
+> Forward the port to access the dashboard again
+> ```bash
+> kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8080:443 --address 0.0.0.0 &
+> ```
+> 
+> And see the Control Plane node version is updated to v1.35.0
+>
+> Forward it whenever you want to access the dashboard & your dashboard will be available at `http://<EC2-Public-IP>:8080`
+
 ---
 
 ### Phase 2: Worker Node 01 Upgrade
 
 **Step 1: Drain the node (Run on EC2 Host)**
 ```bash
-kubectl drain upgrade-demo-worker --ignore-daemonsets
+kubectl drain upgrade-demo-worker --ignore-daemonsets --delete-emptydir-data
 ```
 
 **Step 2: Enter the node container (Run on EC2 Host)**
@@ -196,7 +214,7 @@ kubectl uncordon upgrade-demo-worker
 
 **Step 1: Drain the node (Run on EC2 Host)**
 ```bash
-kubectl drain upgrade-demo-worker2 --ignore-daemonsets
+kubectl drain upgrade-demo-worker2 --ignore-daemonsets --delete-emptydir-data
 ```
 
 **Step 2: Enter the node container (Run on EC2 Host)**
@@ -240,12 +258,65 @@ On your EC2 Host, check the cluster status:
 ```bash
 kubectl get nodes -o wide
 ```
+
 **Expected Output**: All nodes should report `STATUS: Ready` and `VERSION: v1.35.0`.
+
+![after-upgrade](screenshots/6.png)
 
 ### Monitoring the Upgrade
 1. Monitor the **Cluster Monitor** dashboard(running on port 80) & Kubernetes Dashboard(running on port 8080) during maintenance, see the dashboard at https://<EC2-Public-IP>:8080.
 2. Observe pod eviction and recreation on available nodes during worker upgrades, see the versions of nodes and pods in the dashboard.
 3. Verify that the application running on port 80 maintains availability throughout the rolling process.
+
+---
+
+## Before upgrade
+
+- System Information:
+
+   ```bash
+   kubectl get nodes -o wide
+   ```
+
+   ![before-upgrade](screenshots/1.png)
+
+   - upgrade-demo-control-plane
+
+      ![before-upgrade](screenshots/2.png)
+
+   - upgrade-demo-worker
+
+      ![before-upgrade](screenshots/3.png)
+
+   - upgrade-demo-worker2
+
+      ![before-upgrade](screenshots/4.png)   
+
+---
+
+## After upgrade
+
+- System Information:
+
+   ```bash
+   kubectl get nodes -o wide
+   ```
+
+   ![after-upgrade](screenshots/6.png)
+
+   - upgrade-demo-control-plane
+
+      ![after-upgrade](screenshots/7.png)
+
+   - upgrade-demo-worker
+
+      ![after-upgrade](screenshots/8.png)
+
+   - upgrade-demo-worker2
+
+      ![after-upgrade](screenshots/9.png)   
+
+---
 
 ## Local Testing
 To run the application locally without Kubernetes:
