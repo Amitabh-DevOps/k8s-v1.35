@@ -1,157 +1,208 @@
-# Kubernetes Upgrade Demonstration: v1.34 to v1.35
+# Kubernetes Cluster Upgrade Demonstration: v1.34 to v1.35
 
-This repository contains a sample Node.js application and the necessary infrastructure manifests to demonstrate a Kubernetes cluster upgrade from version 1.34 to 1.35. The application provides a real-time dashboard that displays pod telemetry, making it easy to visualize how workloads are managed during a rolling update.
+This repository provides a comprehensive environment and application to demonstrate a live Kubernetes cluster upgrade. It is specifically designed to showcase the transition from version 1.34 to 1.35 using a multi-node Kind cluster running on an AWS EC2 Ubuntu instance.
 
-## Project Components
+The project includes a "Cluster Monitor" application that provides real-time visual telemetry of pod distribution across nodes, making it an ideal tool for demonstrating zero-downtime upgrades and pod rescheduling.
 
-### Application Layer
-The application is a lightweight Node.js server built with Express. It provides a telemetry API that retrieves pod information directly from the Kubernetes environment using the Downward API.
-- server.js: The backend server logic.
-- public/: A modern frontend dashboard showing pod name, node name, namespace, and system metrics.
+## Project Structure
 
-### Containerization
-The project includes a multi-stage Dockerfile that produces a minimal runtime image.
-- Dockerfile: Optimized for production-grade deployments.
+- **Application**: A Node.js Express server with a high-performance telemetry dashboard.
+- **Containerization**: A multi-stage Dockerfile for an optimized runtime environment.
+- **Orchestration**: Kubernetes manifests defining a NodePort service and a Deployment with three replicas.
+- **Infrastructure**: Kind configuration for a 3-node cluster and an automated setup script for Ubuntu.
 
-### Kubernetes Manifests
-Standard resource definitions for deploying the application and exposing it to external traffic.
-- k8s/manifests.yaml: Includes a Deployment with three replicas and a LoadBalancer Service. It also configures the Downward API to inject environment variables.
+## Environment Preparation (Run on AWS EC2 Host)
 
-### Cluster Setup and Automation
-Tools to quickly provision a test environment on AWS EC2 or local machines.
-- setup-k8s.sh: A shell script for Ubuntu-based systems that installs Docker, Kind, and Kubectl.
-- kind-config.yaml: A Kind cluster configuration that initializes a three-node cluster (one control plane and two workers) at version 1.34.0.
+Before beginning the demonstration, prepare the host environment by installing the necessary tools.
 
-## Usage Instructions
-
-### Environment Preparation
-1. Copy the setup script to your Ubuntu instance and execute it:
-
+1. Execute the setup script:
    ```bash
    chmod +x setup-k8s.sh
    ./setup-k8s.sh
    ```
 
-2. Update Docker group:
-
+2. Refresh group membership for Docker (if not already done):
    ```bash
    newgrp docker
    ```
 
-3. Provision the Kind cluster:
+3. Initialize the v1.34 cluster:
    ```bash
    kind create cluster --config kind-config.yaml --name upgrade-demo
    ```
 
-### Deployment
-1. Build and push your container image:
+## Application Deployment (Run on AWS EC2 Host)
+
+1. Build the container image:
    ```bash
-   docker build -t your-registry/k8s-demo-app:v1.0.0 .
-   docker push your-registry/k8s-demo-app:v1.0.0
+   docker build -t amitabhdevops/k8s-demo-app:v1.0.0 .
    ```
 
-2. Update the image field in `k8s/manifests.yaml` with your specific image tag.
+2. Load the image into the Kind cluster (recommended for local demo):
+   ```bash
+   kind load docker-image amitabhdevops/k8s-demo-app:v1.0.0 --name upgrade-demo
+   ```
 
 3. Deploy the application:
    ```bash
    kubectl apply -f k8s/manifests.yaml
    ```
 
-### Cluster Upgrade Process (Simulated Production Flow)
-Because **Kind** runs Kubernetes inside Docker containers, you must execute the `kubeadm` and `apt` commands **inside** the specific node containers. This provides a perfect simulation of a real server upgrade.
+4. Access the dashboard:
+   Navigate to `http://<EC2-Public-IP>` in your browser. Ensure Port 80 is open in your Security Group.
 
-#### 1. Prepare the Control Plane
-First, enter the control-plane container to update the management tools.
-   ```bash
-   # 1. Enter the container
-   docker exec -it upgrade-demo-control-plane bash
+---
 
-   # 2. (Inside the container) Update package list and configure v1.35 repo
-   apt update
-   apt install -y curl gnupg
-   curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-   echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-   apt update
+## The Upgrade Process (v1.34.0 to v1.35.0)
 
-   # 3. (Inside the container) Upgrade kubeadm
-   apt-mark unhold kubeadm
-   apt install -y kubeadm=1.35.0-1.1
+Because Kind runs Kubernetes nodes inside Docker containers, the upgrade involves managing the host's kubectl and the internal components within each container node.
 
-   # 4. (Inside the container) Verify the upgrade plan
-   kubeadm upgrade plan --ignore-preflight-errors=SystemVerification
-   ```
+### Phase 1: Control Plane Upgrade
 
-#### 2. Execute Control Plane Upgrade
-While still inside the `upgrade-demo-control-plane` container (or using another terminal for the drain):
-   ```bash
-   # From your AWS EC2 host (not inside the container):
-   kubectl drain upgrade-demo-control-plane --ignore-daemonsets
+**Step 1: Drain the node (Run on EC2 Host)**
+```bash
+kubectl drain upgrade-demo-control-plane --ignore-daemonsets
+```
 
-   # Inside the control-plane container:
-   kubeadm upgrade apply v1.35.0 --ignore-preflight-errors=SystemVerification
+**Step 2: Enter the node container (Run on EC2 Host)**
+```bash
+docker exec -it upgrade-demo-control-plane bash
+```
 
-   # Upgrade kubelet and kubectl inside the container:
-   apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
-   systemctl restart kubelet
+**Step 3: Upgrade components (Run INSIDE Control Plane Container)**
+```bash
+# Configure v1.35 repository
+apt update && apt install -y curl gnupg
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+apt update
 
-   # From your AWS EC2 host:
-   kubectl uncordon upgrade-demo-control-plane
-   ```
+# Upgrade kubeadm
+apt-mark unhold kubeadm
+apt install -y kubeadm=1.35.0-1.1
+apt-mark hold kubeadm
 
-#### 3. Upgrade Worker Nodes
-Repeat this process for the worker nodes.
-   ```bash
-   # 1. Drain the worker from EC2 host:
-   kubectl drain upgrade-demo-worker --ignore-daemonsets
+# Run the upgrade
+kubeadm upgrade plan --ignore-preflight-errors=SystemVerification
+kubeadm upgrade apply v1.35.0 --ignore-preflight-errors=SystemVerification
 
-   # 2. Enter the worker container:
-   docker exec -it upgrade-demo-worker bash
+# Upgrade kubelet and kubectl
+apt-mark unhold kubelet kubectl
+apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
+apt-mark hold kubelet kubectl
+systemctl restart kubelet
 
-   # 3. (Inside worker) Configure repo and upgrade tools:
-   apt update
-   apt install -y curl gnupg
-   curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-   echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-   apt update
+# Exit the container
+exit
+```
 
-   # 4. (Inside worker) Install tools and upgrade node:
-   apt-mark unhold kubeadm kubelet kubectl
-   apt install -y kubeadm=1.35.0-1.1
-   kubeadm upgrade node --ignore-preflight-errors=SystemVerification
-   apt install -y kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
-   apt-mark hold kubeadm kubelet kubectl
-   systemctl restart kubelet
+**Step 4: Uncordon the node (Run on EC2 Host)**
+```bash
+kubectl uncordon upgrade-demo-control-plane
+```
 
-   # 4. From your AWS EC2 host:
-   kubectl uncordon upgrade-demo-worker
-   ```
+---
 
-### Alternative: Native Kind Upgrade (Cluster Recreation)
-If you do not need to simulate the manual `kubeadm` process, the standard "Kind-native" way to upgrade is to delete the cluster and recreate it using a newer node image.
+### Phase 2: Worker Node 01 Upgrade
 
-1. **Delete the existing v1.34 cluster:**
-   ```bash
-   kind delete cluster --name upgrade-demo
-   ```
+**Step 1: Drain the node (Run on EC2 Host)**
+```bash
+kubectl drain upgrade-demo-worker --ignore-daemonsets
+```
 
-2. **Recreate with the v1.35 image:**
-   Modify your `kind-config.yaml` to use `image: kindest/node:v1.35.0` or run:
-   ```bash
-   kind create cluster --config kind-config.yaml --name upgrade-demo --image kindest/node:v1.35.0
-   ```
+**Step 2: Enter the node container (Run on EC2 Host)**
+```bash
+docker exec -it upgrade-demo-worker bash
+```
 
-### Demonstration Guidance
-Access the application dashboard by navigating to the **Public IP of your EC2 instance** in your web browser (ensure port 80 is open in your AWS Security Group).
+**Step 3: Upgrade components (Run INSIDE Worker Container)**
+```bash
+# Configure v1.35 repository
+apt update && apt install -y curl gnupg
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+apt update
 
-As you drain nodes and upgrade components:
-1. Observe the "Node Name" in the dashboard change as pods are rescheduled.
-2. Monitor the "Live" pulse to ensure zero-downtime during the rolling process.
-3. Verify the final versioning across all nodes once the process is complete.
+# Upgrade tools and configuration
+apt-mark unhold kubeadm kubelet kubectl
+apt install -y kubeadm=1.35.0-1.1 kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
+kubeadm upgrade node --ignore-preflight-errors=SystemVerification
+apt-mark hold kubeadm kubelet kubectl
+systemctl restart kubelet
 
-## Local Development
-To run the application locally for testing:
-1. Install dependencies:
-   npm install
-2. Start the server:
-   npm start
-3. Access the dashboard at http://localhost:3000.
+# Exit the container
+exit
+```
+
+**Step 4: Uncordon the node (Run on EC2 Host)**
+```bash
+kubectl uncordon upgrade-demo-worker
+```
+
+---
+
+### Phase 3: Worker Node 02 Upgrade
+
+**Step 1: Drain the node (Run on EC2 Host)**
+```bash
+kubectl drain upgrade-demo-worker2 --ignore-daemonsets
+```
+
+**Step 2: Enter the node container (Run on EC2 Host)**
+```bash
+docker exec -it upgrade-demo-worker2 bash
+```
+
+**Step 3: Upgrade components (Run INSIDE Worker Container)**
+```bash
+# Configure v1.35 repository
+apt update && apt install -y curl gnupg
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+apt update
+
+# Upgrade tools and configuration
+apt-mark unhold kubeadm kubelet kubectl
+apt install -y kubeadm=1.35.0-1.1 kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
+kubeadm upgrade node --ignore-preflight-errors=SystemVerification
+apt-mark hold kubeadm kubelet kubectl
+systemctl restart kubelet
+
+# Exit the container
+exit
+```
+
+**Step 4: Uncordon the node (Run on EC2 Host)**
+```bash
+kubectl uncordon upgrade-demo-worker2
+```
+
+---
+
+## Verification and Demonstration
+
+Once the upgrade process is complete, follow these steps to verify success and demonstrate the changes visually.
+
+### Command Line Verification
+On your EC2 Host, check the cluster status:
+```bash
+kubectl get nodes -o wide
+```
+**Expected Output**: All nodes should report `STATUS: Ready` and `VERSION: v1.35.0`.
+
+### Visual Demonstration
+1. Open the **Cluster Monitor** dashboard.
+2. During the worker upgrades, observe the pods being evicted and recreated on the remaining nodes.
+3. Note the **Node Name** update in the dashboard for each pod.
+4. Confirm that the application remained available (indicated by the **Live** pulse) throughout the entire rolling upgrade.
+
+## Local Testing
+To run the application locally without Kubernetes:
+```bash
+npm install
+npm start
+```
+The dashboard will be available at http://localhost:3000.
